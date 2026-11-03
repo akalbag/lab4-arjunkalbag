@@ -6,30 +6,18 @@
  *
  * A transpose function is evaluated by counting the number of misses
  * on a 1KB direct mapped cache with a block size of 32 bytes.
- *
- * Cache facts used below: 32 sets x 32-byte lines, so one line holds
- * 8 ints and the whole cache holds 256 ints. A and B start at addresses
- * that map to the same set, so A[i][j] and B[i][j] conflict.
  */
 #include <stdio.h>
 #include "cachelab.h"
 
-/* Block sizes (enum instead of #define so the variable checker can parse) */
 enum {
-    BLOCK_8 = 8,        /* one cache line of ints */
-    HALF_8 = 4,         /* half of an 8x8 block */
-    BLOCK_ODD = 16      /* block size for the irregular 61x67 case */
+    BLOCK_8 = 8,
+    HALF_8 = 4,
+    BLOCK_ODD = 16
 };
 
 int is_transpose(int M, int N, int A[N][M], int B[M][N]);
 
-/*
- * trans_32 - 8x8 blocking. For each block, copy the 8 rows of A into the
- *     matching rows of B's target block (one row read into eight locals,
- *     then written as one B line), then transpose that 8x8 block in place
- *     inside B. Working only inside B after the copy avoids the A/B
- *     conflict misses that occur on the diagonal blocks.
- */
 void trans_32(int M, int N, int A[N][M], int B[M][N])
 {
     int i, j, k, l;
@@ -37,7 +25,6 @@ void trans_32(int M, int N, int A[N][M], int B[M][N])
 
     for (i = 0; i < N; i += BLOCK_8) {
         for (j = 0; j < M; j += BLOCK_8) {
-            /* Copy: row i+k of A's block becomes row j+k of B's block */
             for (k = 0; k < BLOCK_8; k++) {
                 t0 = A[i + k][j];
                 t1 = A[i + k][j + 1];
@@ -58,7 +45,6 @@ void trans_32(int M, int N, int A[N][M], int B[M][N])
                 B[j + k][i + 7] = t7;
             }
 
-            /* Transpose the 8x8 block of B in place */
             for (k = 0; k < BLOCK_8; k++) {
                 for (l = k + 1; l < BLOCK_8; l++) {
                     t0 = B[j + k][i + l];
@@ -70,15 +56,6 @@ void trans_32(int M, int N, int A[N][M], int B[M][N])
     }
 }
 
-/*
- * trans_64 - In a 64-wide matrix, rows 4 apart map to the same set, so a
- *     plain 8x8 block thrashes. Each 8x8 block is handled in three steps:
- *     1. Top half of A (4 rows x 8 cols): left 4x4 goes transposed into
- *        B's top-left; right 4x4 is parked transposed in B's top-right.
- *     2. Move the parked values into B's bottom-left while filling B's
- *        top-right from A's bottom-left, one row of B at a time.
- *     3. Bottom-right 4x4 of A goes transposed into B's bottom-right.
- */
 void trans_64(int M, int N, int A[N][M], int B[M][N])
 {
     int i, j, k;
@@ -86,7 +63,6 @@ void trans_64(int M, int N, int A[N][M], int B[M][N])
 
     for (i = 0; i < N; i += BLOCK_8) {
         for (j = 0; j < M; j += BLOCK_8) {
-            /* Step 1 */
             for (k = i; k < i + HALF_8; k++) {
                 t0 = A[k][j];
                 t1 = A[k][j + 1];
@@ -107,7 +83,6 @@ void trans_64(int M, int N, int A[N][M], int B[M][N])
                 B[j + 3][k + HALF_8] = t7;
             }
 
-            /* Step 2 */
             for (k = j; k < j + HALF_8; k++) {
                 t0 = A[i + 4][k];
                 t1 = A[i + 5][k];
@@ -130,7 +105,6 @@ void trans_64(int M, int N, int A[N][M], int B[M][N])
                 B[k + HALF_8][i + 3] = t7;
             }
 
-            /* Step 3 */
             for (k = i + HALF_8; k < i + BLOCK_8; k++) {
                 t0 = A[k][j + 4];
                 t1 = A[k][j + 5];
@@ -146,11 +120,6 @@ void trans_64(int M, int N, int A[N][M], int B[M][N])
     }
 }
 
-/*
- * trans_general - Square blocking with bounds checks; used for sizes
- *     (like 61x67) whose rows don't line up with cache sets in a regular
- *     way, so conflicts are spread out and simple blocking works well.
- */
 void trans_general(int M, int N, int A[N][M], int B[M][N])
 {
     int ii, jj, i, j;
