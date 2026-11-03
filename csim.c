@@ -1,46 +1,32 @@
-/*
- * csim.c - A cache simulator that replays a valgrind memory trace and
- *          reports hits, misses, evictions, dirty bytes evicted, dirty
- *          bytes still active in the cache, and double references.
- *
- * Policy: write-back, write-allocate, LRU replacement.
- * A "double reference" is a hit on the line that was most recently
- * accessed in that same set.
- */
 #include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include "cachelab.h"
 
-/* One cache line */
 typedef struct {
     int valid;
     int dirty;
     unsigned long long tag;
-    unsigned long long lru;     /* time of last access; smaller = older */
+    unsigned long long lru;
 } line_t;
 
-/* One cache set: E lines plus the index of the most recently used line */
 typedef struct {
     line_t *lines;
-    int mru;                    /* -1 when nothing has been accessed yet */
+    int mru;
 } set_t;
 
-/* Cache geometry and state */
 static int s, E, b;
 static int verbose = 0;
 static set_t *cache;
 static unsigned long long timer = 0;
 
-/* Statistics */
 static int hit_count = 0;
 static int miss_count = 0;
 static int eviction_count = 0;
 static int dirty_bytes_evicted = 0;
 static int double_refs = 0;
 
-/* printUsage - print help text */
 static void printUsage(char *prog)
 {
     printf("Usage: %s [-hv] -s <s> -E <E> -b <b> -t <tracefile>\n", prog);
@@ -52,7 +38,6 @@ static void printUsage(char *prog)
     printf("  -t  Trace file.\n");
 }
 
-/* initCache - allocate S sets of E zeroed lines */
 static void initCache(void)
 {
     int S = 1 << s;
@@ -73,7 +58,6 @@ static void initCache(void)
     }
 }
 
-/* freeCache - release all memory used by the cache */
 static void freeCache(void)
 {
     int S = 1 << s;
@@ -85,10 +69,6 @@ static void freeCache(void)
     free(cache);
 }
 
-/*
- * accessCache - simulate one load (is_store == 0) or store (is_store == 1)
- *               to the given address and update the statistics.
- */
 static void accessCache(unsigned long long addr, int is_store)
 {
     unsigned long long set_index = (addr >> b) & ((1ULL << s) - 1);
@@ -99,7 +79,6 @@ static void accessCache(unsigned long long addr, int is_store)
 
     timer++;
 
-    /* Hit? */
     for (i = 0; i < E; i++) {
         if (set->lines[i].valid && set->lines[i].tag == tag) {
             hit_count++;
@@ -116,11 +95,9 @@ static void accessCache(unsigned long long addr, int is_store)
         }
     }
 
-    /* Miss */
     miss_count++;
     if (verbose) printf(is_store ? " dirty-miss" : " miss");
 
-    /* Prefer an empty line; otherwise evict the least recently used one */
     for (i = 0; i < E; i++) {
         if (!set->lines[i].valid) {
             victim = i;
@@ -150,7 +127,6 @@ static void accessCache(unsigned long long addr, int is_store)
     set->mru = victim;
 }
 
-/* countDirtyActive - number of dirty bytes still in the cache */
 static int countDirtyActive(void)
 {
     int S = 1 << s;
@@ -218,9 +194,8 @@ int main(int argc, char *argv[])
 
     initCache();
 
-    /* Leading space in the format skips whitespace, including newlines */
     while (fscanf(fp, " %c %llx,%d", &op, &addr, &size) == 3) {
-        if (op == 'I') continue;           /* ignore instruction fetches */
+        if (op == 'I') continue;
         if (verbose) printf("%c %llx,%d", op, addr, size);
         switch (op) {
         case 'L':
@@ -229,7 +204,7 @@ int main(int argc, char *argv[])
         case 'S':
             accessCache(addr, 1);
             break;
-        case 'M':                           /* load then store */
+        case 'M':
             accessCache(addr, 0);
             accessCache(addr, 1);
             break;
